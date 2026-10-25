@@ -1,0 +1,38 @@
+name: verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verified official Zig toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $index = Invoke-RestMethod 'https://ziglang.org/download/index.json'
+          $release = $index.'0.13.0'.'x86_64-windows'
+          Invoke-WebRequest $release.tarball -OutFile zig.zip
+          if ((Get-FileHash zig.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $release.shasum) { throw 'Zig SHA256 mismatch' }
+          Expand-Archive zig.zip -DestinationPath $env:RUNNER_TEMP/strata-zig
+          $compiler = Get-ChildItem $env:RUNNER_TEMP/strata-zig -Filter zig.exe -Recurse | Select-Object -First 1
+          "STRATA_ZIG=$($compiler.FullName)" >> $env:GITHUB_ENV
+      - name: Recompile current source and independent crash suite
+        run: python tools/verify.py
+      - name: Recompile with address and undefined-behavior sanitizers (Linux)
+        if: runner.os == 'Linux'
+        run: python tools/verify.py --sanitize
+      - name: Synthetic measurement with model checks
+        run: python tools/experiment.py
+      - run: python -m compileall -q tools tests
+      - run: python -m pip install --index-url https://pypi.org/simple ruff==0.17.2
+      - run: ruff check tools tests
+      - run: ruff format --check tools tests

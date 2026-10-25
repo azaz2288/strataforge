@@ -1,0 +1,8 @@
+/build/
+__pycache__/
+*.pyc
+/.venv/
+/data/
+/.zig-cache/
+/zig-out/
+/.ruff_cache/
